@@ -98,11 +98,6 @@
         msg: "No composer.json in {{ project_dest }}, skipping dependencies installation."
       when: not composer_json.stat.exists
 
-        - name: Disable default AWS HTTPD welcome page
-      file:
-        path: /etc/httpd/conf.d/welcome.conf
-        state: absent
-
     - name: Configure HTTPD DocumentRoot
       copy:
         dest: /etc/httpd/conf.d/app.conf
