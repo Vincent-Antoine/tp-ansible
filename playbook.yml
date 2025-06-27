@@ -10,7 +10,7 @@
         shell: /bin/bash
         create_home: yes
 
-    - name: Installer Apache, MariaDB, PHP et Git
+    - name: Installer Apache, MariaDB, PHP, Git et unzip
       dnf:
         name:
           - httpd
@@ -19,6 +19,7 @@
           - php-mysqlnd
           - php-cli
           - git
+          - unzip
         state: present
         update_cache: yes
 
@@ -44,18 +45,24 @@
       args:
         creates: /usr/local/bin/composer
 
-    - name: Lancer Composer install dans le dossier src
+    - name: Installer les dépendances PHP avec Composer
       command: /usr/local/bin/composer install --no-interaction
       args:
         chdir: /var/www/html/trygl/src
 
-    - name: Ajuster DocumentRoot vers /var/www/html/trygl/src
+    - name: Vérifier la syntaxe Apache avant redémarrage
+      command: apachectl configtest
+      register: apache_syntax
+      changed_when: false
+      failed_when: apache_syntax.rc != 0
+
+    - name: Mettre à jour le DocumentRoot pour pointer sur src
       replace:
         path: /etc/httpd/conf/httpd.conf
-        regexp: '^DocumentRoot\s+'
+        regexp: '^\s*DocumentRoot\s+".*"'
         replace: 'DocumentRoot "/var/www/html/trygl/src"'
 
-    - name: Autoriser l’accès à /var/www/html/trygl/src
+    - name: Autoriser l’accès au répertoire de l’application
       blockinfile:
         path: /etc/httpd/conf/httpd.conf
         insertafter: '^DocumentRoot'
@@ -70,7 +77,7 @@
         name: httpd
         state: restarted
 
-    - name: Vérifier que le site répond bien sur localhost
+    - name: Vérifier que l’application répond bien
       uri:
         url: http://localhost/
         status_code: 200
