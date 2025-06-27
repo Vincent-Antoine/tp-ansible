@@ -18,7 +18,7 @@
       dnf:
         name:
           - httpd
-          - mariadb105-server   # installe MariaDB 10.5 server + client
+          - mariadb105-server
           - php
           - php-mysqlnd
           - git
@@ -47,7 +47,6 @@
         mode: "0755"
 
     - name: Clone project repository as ynov
-      become: yes
       become_user: ynov
       git:
         repo: "{{ repo_url }}"
@@ -56,7 +55,6 @@
         force: yes
 
     - name: Provide default index.html if none exists
-      become: yes
       become_user: ynov
       copy:
         dest: "{{ project_dest }}/index.html"
@@ -69,6 +67,11 @@
         owner: ynov
         group: ynov
         mode: "0644"
+
+    - name: Disable default AWS HTTPD welcome page
+      file:
+        path: /etc/httpd/conf.d/welcome.conf
+        state: absent
 
     - name: Download Composer installer
       get_url:
@@ -86,7 +89,6 @@
       register: composer_json
 
     - name: Install Composer dependencies via command
-      become: yes
       become_user: ynov
       command: /usr/local/bin/composer install --no-interaction
       args:
@@ -116,3 +118,9 @@
       uri:
         url: "http://localhost/"
         status_code: 200
+
+  handlers:
+    - name: Restart httpd
+      service:
+        name: httpd
+        state: restarted
