@@ -1,10 +1,9 @@
 ---
-- name: Provision EC2 LAMP application
+- name: Provision EC2 LAMP application on Amazon Linux
   hosts: ec2
   become: yes
 
   vars:
-    # Remplacez cette URL par celle de votre dépôt GitLab/GitHub
     repo_url: "https://github.com/Vincent-Antoine/tp-ansible.git"
     project_dest: "/var/www/src"
 
@@ -15,34 +14,28 @@
         shell: /bin/bash
         create_home: yes
 
-    - name: Install LAMP stack and required tools
-      apt:
+    - name: Install LAMP stack and required tools via yum
+      yum:
         name:
-          - apache2
-          - mysql-server
+          - httpd
+          - mariadb-server
           - php
-          - libapache2-mod-php
-          - php-mysql
-          - git               # pour cloner le repo
-          - php-cli           # requis par composer
-          - composer          # installe Composer via apt
+          - php-mysqlnd
+          - git
+          - php-cli
+          - composer       # nécessite EPEL ou dépôt tiers
         state: present
-        update_cache: yes
+      register: yum_install
 
-    - name: Start and enable MySQL
+    - name: Enable & start MariaDB
       service:
-        name: mysql
+        name: mariadb
         state: started
         enabled: yes
 
-    - name: Ensure Apache mod_rewrite is enabled
-      apache2_module:
-        name: rewrite
-        state: present
-
-    - name: Start and enable Apache
+    - name: Enable & start HTTPD
       service:
-        name: apache2
+        name: httpd
         state: started
         enabled: yes
 
@@ -53,7 +46,7 @@
         version: HEAD
         force: yes
 
-    - name: Ensure ynov owns the project directory
+    - name: Chown project directory to ynov
       file:
         path: "{{ project_dest }}"
         owner: ynov
@@ -65,26 +58,24 @@
         working_dir: "{{ project_dest }}"
         executable: composer
 
-    - name: Configure Apache DocumentRoot
+    - name: Configure HTTPD DocumentRoot
       copy:
-        dest: /etc/apache2/sites-available/000-default.conf
+        dest: /etc/httpd/conf.d/app.conf
         content: |
-          <VirtualHost *:80>
-            DocumentRoot {{ project_dest }}
-            <Directory {{ project_dest }}>
-              AllowOverride All
-              Require all granted
-            </Directory>
-          </VirtualHost>
-      notify: Reload Apache
+          DocumentRoot {{ project_dest }}
+          <Directory {{ project_dest }}>
+            AllowOverride All
+            Require all granted
+          </Directory>
+      notify: Restart httpd
 
-    - name: Healthcheck (HTTP)
+    - name: HTTP Healthcheck
       uri:
         url: "http://localhost/"
         status_code: 200
 
   handlers:
-    - name: Reload Apache
+    - name: Restart httpd
       service:
-        name: apache2
-        state: reloaded
+        name: httpd
+        state: restarted
