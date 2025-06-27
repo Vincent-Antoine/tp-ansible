@@ -111,11 +111,5 @@
 
     - name: HTTP Healthcheck
       uri:
-        url: "http://localhost/index.html"
+        url: "http://localhost/"
         status_code: 200
-
-  handlers:
-    - name: Restart httpd
-      service:
-        name: httpd
-        state: restarted
