@@ -63,6 +63,8 @@
       when: composer_script.changed
 
     - name: Install Composer dependencies
+      become: yes
+      become_user: ynov
       composer:
         working_dir: "{{ project_dest }}"
         executable: composer
