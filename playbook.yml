@@ -18,7 +18,7 @@
       dnf:
         name:
           - httpd
-          - mariadb        # installe le serveur et le client
+          - mariadb105-server   # installe MariaDB 10.5 server + client
           - php
           - php-mysqlnd
           - git
