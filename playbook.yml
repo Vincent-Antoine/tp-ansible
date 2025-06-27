@@ -1,99 +1,141 @@
 ---
-- name: Déploiement projet LAMP
-  hosts: all
+- name: Déploiement LAMP stack avec application PHP
+  hosts: webservers
   become: yes
-
   vars:
-    project_git_url: "https://gitlab.com/Vincent-Antoine/trygl.git"
-    project_path: "/var/www"
-    apache_conf_path: "/etc/httpd/conf/httpd.conf"
-    web_root: "/var/www/html/trygl"
-    apache_root: "/var/www/html/trygl"
-
+    app_user: ynov
+    app_dir: /var/www
+    git_repo: "https://gitlab.com/Vincent-Antoine/trygl.git"
+    
   tasks:
-    - name: Créer utilisateur ynov
+    # 1. Créer l'utilisateur ynov
+    - name: Créer l'utilisateur ynov
       user:
-        name: ynov
-        state: present
+        name: "{{ app_user }}"
         shell: /bin/bash
-
-    - name: Installer la stack complète LAMP
-      ansible.builtin.dnf:
-        name:
-          - httpd
-          - mariadb105-server
-          - php
-          - php-mysqlnd
-          - php-cli
-          - php-json
-          - php-common
-          - unzip
-          - git
+        create_home: yes
         state: present
-        update_cache: yes
-
-    - name: Supprimer le contenu de {{ web_root }}
-      ansible.builtin.file:
-        path: "{{ web_root }}"
+    
+    # 2. Mettre à jour le système
+    - name: Mettre à jour les paquets système
+      shell: yum update -y
+    
+    # 3. Installer Apache
+    - name: Installer Apache
+      shell: yum install -y httpd
+    
+    # 4. Installer MySQL/MariaDB
+    - name: Installer MariaDB
+      shell: yum install -y mariadb-server mariadb python3-PyMySQL
+    
+    # 5. Installer PHP et ses extensions
+    - name: Installer PHP et ses extensions
+      shell: yum install -y php php-mysqlnd php-fpm php-opcache php-gd php-xml php-mbstring php-json php-zip php-curl
+    
+    # 6. Installer Git et autres outils
+    - name: Installer Git et outils nécessaires
+      shell: yum install -y git unzip curl
+    
+    # 7. Démarrer et activer Apache
+    - name: Démarrer et activer Apache
+      systemd:
+        name: httpd
+        state: started
+        enabled: yes
+    
+    # 8. Démarrer et activer MariaDB
+    - name: Démarrer et activer MariaDB
+      systemd:
+        name: mariadb
+        state: started
+        enabled: yes
+    
+    # 9. Préparer le répertoire d'application
+    - name: Supprimer le répertoire /var/www existant
+      file:
+        path: "{{ app_dir }}"
         state: absent
-
-    - name: Cloner le dépôt Git dans {{ web_root }}
-      ansible.builtin.git:
-        repo: "{{ project_git_url }}"
-        dest: "{{ web_root }}"
-        version: main
+    
+    - name: Recréer le répertoire d'application vide
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: apache
+        mode: '0755'
+    
+    # 10. Cloner le repository GitLab directement dans /var/www
+    - name: Cloner le repository GitLab dans /var/www
+      git:
+        repo: "{{ git_repo }}"
+        dest: "{{ app_dir }}"
         force: yes
-
+      become_user: "{{ app_user }}"
+    
+    # 11. Installer Composer
     - name: Télécharger Composer
-      ansible.builtin.get_url:
+      get_url:
         url: https://getcomposer.org/installer
         dest: /tmp/composer-setup.php
-
-    - name: Installer Composer globalement
-      ansible.builtin.command:
-        cmd: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+        mode: '0755'
+    
+    - name: Installer Composer
+      shell: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+      args:
         creates: /usr/local/bin/composer
-
-    - name: Modifier le DocumentRoot dans la conf Apache
-      ansible.builtin.replace:
-        path: "{{ apache_conf_path }}"
-        regexp: '^DocumentRoot\s+".*"'
-        replace: 'DocumentRoot "{{ apache_root }}"'
-
-    - name: Ajouter configuration Directory pour Apache
-      ansible.builtin.blockinfile:
-        path: "{{ apache_conf_path }}"
-        insertafter: "^DocumentRoot"
-        block: |
-          <Directory "{{ apache_root }}">
-              AllowOverride None
-              Require all granted
-          </Directory>
-
-    - name: Donner les droits à Apache sur {{ apache_root }}
-      ansible.builtin.file:
-        path: "{{ apache_root }}"
-        state: directory
-        recurse: yes
-        owner: apache
+    
+    # 12. Installer les dépendances Composer (si composer.json existe)
+    - name: Vérifier si composer.json existe
+      stat:
+        path: "{{ app_dir }}/composer.json"
+      register: composer_json
+    
+    - name: Installer les dépendances Composer
+      shell: |
+        cd {{ app_dir }}
+        /usr/local/bin/composer install --no-dev --optimize-autoloader
+      become_user: "{{ app_user }}"
+      when: composer_json.stat.exists
+    
+    # 13. Configurer Apache - Créer le VirtualHost
+    - name: Créer la configuration Apache pour l'application
+      template:
+        src: apache-vhost.conf.j2
+        dest: /etc/httpd/conf.d/app.conf
+      notify: restart apache
+    
+    # 14. Ajuster les permissions
+    - name: Ajuster les permissions du répertoire web
+      file:
+        path: "{{ app_dir }}"
+        owner: "{{ app_user }}"
         group: apache
-        mode: "0755"
+        mode: '0755'
+        recurse: yes
+    
+    
+    # 15. Healthcheck - Vérifier qu'Apache répond
+    - name: Healthcheck - Vérifier qu'Apache répond
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}"
+        method: GET
+        status_code: 200
+      register: healthcheck
+      ignore_errors: yes
+    
+    - name: Afficher le résultat du healthcheck
+      debug:
+        msg: |
+          {% if healthcheck.status == 200 %}
+          SUCCESS: L'application répond correctement !
+          URL: http://{{ ansible_default_ipv4.address }}
+          {% else %}
+          FAILED: L'application ne répond pas
+          {% endif %}
 
-    - name: Redémarrer Apache
-      ansible.builtin.service:
+  # Handlers pour redémarrer les services
+  handlers:
+    - name: restart apache
+      systemd:
         name: httpd
         state: restarted
-
-    - name: Créer un fichier index.html de test
-      ansible.builtin.copy:
-        dest: "{{ web_root }}/index.html"
-        content: "<html><body><h1>Site OK</h1></body></html>"
-        owner: apache
-        group: apache
-        mode: "0644"
-
-    - name: Vérifier le healthcheck
-      ansible.builtin.uri:
-        url: http://localhost/
-        return_content: yes
-        status_code: 200
