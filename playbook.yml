@@ -6,73 +6,75 @@
   vars:
     project_git_url: "https://gitlab.com/Vincent-Antoine/trygl.git"
     web_root: "/var/www/html/trygl"
-    apache_root: "{{ web_root }}/src"          # <- pointe sur src maintenant
+    apache_root: "{{ web_root }}/src"
     apache_conf_path: "/etc/httpd/conf/httpd.conf"
 
   tasks:
-    - name: Créer utilisateur ynov
-      user:
+    - name: Créer l’utilisateur ynov
+      ansible.builtin.user:
         name: ynov
-        state: present
         shell: /bin/bash
         create_home: yes
 
-    - name: Installer la stack complète LAMP
-      dnf:
+    - name: Installer Apache, MariaDB, PHP, Git et unzip
+      ansible.builtin.dnf:
         name:
           - httpd
           - mariadb105-server
           - php
           - php-mysqlnd
           - php-cli
-          - php-json
-          - php-common
-          - unzip
           - git
+          - unzip
         state: present
         update_cache: yes
 
-    - name: Supprimer le contenu de {{ web_root }}
-      file:
+    - name: Supprimer tout ancien /var/www/src
+      ansible.builtin.file:
+        path: /var/www/src
+        state: absent
+
+    - name: Supprimer l’ancien contenu de {{ web_root }}
+      ansible.builtin.file:
         path: "{{ web_root }}"
         state: absent
 
-    - name: Cloner le dépôt Git dans {{ web_root }}
-      git:
+    - name: Cloner le dépôt GitLab dans {{ web_root }}
+      ansible.builtin.git:
         repo: "{{ project_git_url }}"
         dest: "{{ web_root }}"
         version: main
         force: yes
 
-    - name: Télécharger Composer
-      get_url:
+    - name: Télécharger l’installateur Composer
+      ansible.builtin.get_url:
         url: https://getcomposer.org/installer
         dest: /tmp/composer-setup.php
 
-    - name: Installer Composer globalement
-      command: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
-      args:
+    - name: Installer Composer
+      ansible.builtin.command:
+        cmd: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
         creates: /usr/local/bin/composer
 
-    - name: Installer les dépendances PHP si composer.json existe
-      stat:
+    - name: Vérifier si composer.json existe
+      ansible.builtin.stat:
         path: "{{ apache_root }}/composer.json"
       register: composer_json
 
-    - name: Run composer install
-      command: /usr/local/bin/composer install --no-interaction
-      args:
+    - name: Installer les dépendances PHP avec Composer
+      ansible.builtin.command:
+        cmd: /usr/local/bin/composer install --no-interaction
         chdir: "{{ apache_root }}"
       when: composer_json.stat.exists
 
-    - name: Modifier le DocumentRoot dans la conf Apache
-      replace:
+    - name: Mettre à jour DocumentRoot pour qu’il pointe sur {{ apache_root }}
+      ansible.builtin.replace:
         path: "{{ apache_conf_path }}"
         regexp: '^\s*DocumentRoot\s+".*"'
         replace: 'DocumentRoot "{{ apache_root }}"'
 
-    - name: Ajouter configuration Directory pour Apache
-      blockinfile:
+    - name: Autoriser l’accès à {{ apache_root }}
+      ansible.builtin.blockinfile:
         path: "{{ apache_conf_path }}"
         insertafter: '^DocumentRoot'
         block: |
@@ -81,22 +83,12 @@
               Require all granted
           </Directory>
 
-    - name: Donner les droits à Apache sur {{ apache_root }}
-      file:
-        path: "{{ apache_root }}"
-        state: directory
-        recurse: yes
-        owner: apache
-        group: apache
-        mode: "0755"
-
     - name: Redémarrer Apache
-      service:
+      ansible.builtin.service:
         name: httpd
         state: restarted
 
-    - name: Vérifier le healthcheck
-      uri:
+    - name: Vérifier que l’application répond (healthcheck)
+      ansible.builtin.uri:
         url: http://localhost/
-        return_content: yes
         status_code: 200
