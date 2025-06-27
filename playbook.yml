@@ -47,7 +47,6 @@
         mode: "0755"
 
     - name: Clone project repository as ynov
-      become: yes
       become_user: ynov
       git:
         repo: "{{ repo_url }}"
@@ -65,12 +64,11 @@
       command: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
       when: composer_script.changed
 
-    - name: Install Composer dependencies
-      become: yes
+    - name: Install Composer dependencies via command
       become_user: ynov
-      composer:
-        working_dir: "{{ project_dest }}"
-        executable: /usr/local/bin/composer
+      command: /usr/local/bin/composer install --no-interaction
+      args:
+        chdir: "{{ project_dest }}"
 
     - name: Configure HTTPD DocumentRoot
       copy:
