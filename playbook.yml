@@ -7,8 +7,8 @@
     project_git_url: "https://gitlab.com/Vincent-Antoine/trygl.git"
     project_path: "/var/www"
     apache_conf_path: "/etc/httpd/conf/httpd.conf"
-    web_root: "/var/www/html/tpansible"
-    apache_root: "/var/www/html/tpansible"
+    web_root: "/var/www/html/trygl"
+    apache_root: "/var/www/html/trygl"
  
   tasks:
     - name: Créer utilisateur ynov
@@ -83,14 +83,6 @@
       ansible.builtin.service:
         name: httpd
         state: restarted
- 
-    - name: Créer un fichier index.html de test
-      ansible.builtin.copy:
-        dest: "{{ web_root }}/index.html"
-        content: "<html><body><h1>Site OK</h1></body></html>"
-        owner: apache
-        group: apache
-        mode: "0644"
  
     - name: Vérifier le healthcheck
       ansible.builtin.uri:
