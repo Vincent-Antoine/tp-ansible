@@ -1,5 +1,5 @@
 ---
-- name: Provision EC2 LAMP application on Amazon Linux
+- name: Provision EC2 LAMP application on Amazon Linux 2023
   hosts: ec2
   become: yes
 
@@ -14,26 +14,21 @@
         shell: /bin/bash
         create_home: yes
 
-    - name: Install LAMP stack and required tools via yum
-      yum:
+    - name: Install LAMP group and Git
+      dnf:
         name:
-          - httpd
-          - mariadb-server
-          - php
-          - php-mysqlnd
+          - "@lamp-server"    # groupe LAMP (httpd, mariadb, php…)
           - git
-          - php-cli
-          - composer       # nécessite EPEL ou dépôt tiers
         state: present
-      register: yum_install
+        update_cache: yes
 
-    - name: Enable & start MariaDB
+    - name: Start & enable MariaDB
       service:
         name: mariadb
         state: started
         enabled: yes
 
-    - name: Enable & start HTTPD
+    - name: Start & enable HTTPD
       service:
         name: httpd
         state: started
@@ -46,12 +41,22 @@
         version: HEAD
         force: yes
 
-    - name: Chown project directory to ynov
+    - name: Ensure ynov owns the project directory
       file:
         path: "{{ project_dest }}"
         owner: ynov
         group: ynov
         recurse: yes
+
+    - name: Download Composer installer
+      get_url:
+        url: https://getcomposer.org/installer
+        dest: /tmp/composer-setup.php
+      register: composer_script
+
+    - name: Install Composer
+      command: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+      when: composer_script.changed
 
     - name: Install Composer dependencies
       composer:
@@ -62,11 +67,13 @@
       copy:
         dest: /etc/httpd/conf.d/app.conf
         content: |
-          DocumentRoot {{ project_dest }}
-          <Directory {{ project_dest }}>
-            AllowOverride All
-            Require all granted
-          </Directory>
+          <VirtualHost *:80>
+            DocumentRoot {{ project_dest }}
+            <Directory {{ project_dest }}>
+              AllowOverride All
+              Require all granted
+            </Directory>
+          </VirtualHost>
       notify: Restart httpd
 
     - name: HTTP Healthcheck
