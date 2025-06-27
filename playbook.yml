@@ -14,11 +14,16 @@
         shell: /bin/bash
         create_home: yes
 
-    - name: Install LAMP group and Git
+    - name: Install LAMP packages and Git via dnf
       dnf:
         name:
-          - "@lamp-server"    # groupe LAMP (httpd, mariadb, php…)
+          - httpd
+          - mariadb-server
+          - mariadb          # client tools
+          - php
+          - php-mysqlnd
           - git
+          - php-cli
         state: present
         update_cache: yes
 
