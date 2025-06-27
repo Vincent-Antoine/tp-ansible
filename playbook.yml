@@ -3,140 +3,104 @@
   hosts: all
   become: yes
 
-  vars:
-    app_user: ynov
-    app_dir: /var/www
-    git_repo: "https://gitlab.com/Vincent-Antoine/trygl.git"
-    
   tasks:
-    # 1. Créer l'utilisateur ynov
-    - name: Créer l'utilisateur ynov
+    - name: Créer l’utilisateur ynov
       user:
-        name: "{{ app_user }}"
+        name: ynov
         shell: /bin/bash
         create_home: yes
-        state: present
-    
-    # 2. Mettre à jour le système
-    - name: Mettre à jour les paquets système
-      shell: yum update -y
-    
-    # 3. Installer Apache
+
+    - name: Mettre à jour tous les paquets système
+      dnf:
+        name: "*"
+        state: latest
+
     - name: Installer Apache
-      shell: yum install -y httpd
-    
-    # 4. Installer MySQL/MariaDB
-    - name: Installer MariaDB
-      shell: yum install -y mariadb-server mariadb python3-PyMySQL
-    
-    # 5. Installer PHP et ses extensions
-    - name: Installer PHP et ses extensions
-      shell: yum install -y php php-mysqlnd php-fpm php-opcache php-gd php-xml php-mbstring php-json php-zip php-curl
-    
-    # 6. Installer Git et autres outils
-    - name: Installer Git et outils nécessaires
-      shell: yum install -y git unzip curl
-    
-    # 7. Démarrer et activer Apache
-    - name: Démarrer et activer Apache
-      systemd:
+      dnf:
         name: httpd
+        state: present
+
+    - name: Installer MariaDB (Amazon Linux 2023)
+      dnf:
+        name: mariadb105-server
+        state: present
+
+    - name: Installer PHP et ses extensions
+      dnf:
+        name:
+          - php
+          - php-mysqlnd
+          - php-cli
+        state: present
+
+    - name: Installer Git, unzip et curl
+      dnf:
+        name:
+          - git
+          - unzip
+          - curl
+        state: present
+
+    - name: Démarrer et activer Apache & MariaDB
+      service:
+        name: "{{ item }}"
         state: started
         enabled: yes
-    
-    # 8. Démarrer et activer MariaDB
-    - name: Démarrer et activer MariaDB
-      systemd:
-        name: mariadb
-        state: started
-        enabled: yes
-    
-    # 9. Préparer le répertoire d'application
-    - name: Supprimer le répertoire /var/www existant
+      loop:
+        - httpd
+        - mariadb
+
+    - name: Supprimer tout ancien contenu de l’app
       file:
-        path: "{{ app_dir }}"
+        path: /var/www/html/trygl
         state: absent
-    
-    - name: Recréer le répertoire d'application vide
-      file:
-        path: "{{ app_dir }}"
-        state: directory
-        owner: "{{ app_user }}"
-        group: apache
-        mode: '0755'
-    
-    # 10. Cloner le repository GitLab directement dans /var/www
-    - name: Cloner le repository GitLab dans /var/www
+
+    - name: Cloner le dépôt GitLab dans /var/www/html/trygl
       git:
-        repo: "{{ git_repo }}"
-        dest: "{{ app_dir }}"
+        repo: https://gitlab.com/Vincent-Antoine/trygl.git
+        dest: /var/www/html/trygl
+        version: main
         force: yes
-      become_user: "{{ app_user }}"
-    
-    # 11. Installer Composer
-    - name: Télécharger Composer
+      become_user: ynov
+
+    - name: Télécharger l’installateur Composer
       get_url:
         url: https://getcomposer.org/installer
         dest: /tmp/composer-setup.php
         mode: '0755'
-    
+
     - name: Installer Composer
-      shell: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+      command: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
       args:
         creates: /usr/local/bin/composer
-    
-    # 12. Installer les dépendances Composer (si composer.json existe)
-    - name: Vérifier si composer.json existe
-      stat:
-        path: "{{ app_dir }}/composer.json"
-      register: composer_json
-    
-    - name: Installer les dépendances Composer
-      shell: |
-        cd {{ app_dir }}
-        /usr/local/bin/composer install --no-dev --optimize-autoloader
-      become_user: "{{ app_user }}"
-      when: composer_json.stat.exists
-    
-    # 13. Configurer Apache - Créer le VirtualHost
-    - name: Créer la configuration Apache pour l'application
-      template:
-        src: apache-vhost.conf.j2
-        dest: /etc/httpd/conf.d/app.conf
-      notify: restart apache
-    
-    # 14. Ajuster les permissions
-    - name: Ajuster les permissions du répertoire web
-      file:
-        path: "{{ app_dir }}"
-        owner: "{{ app_user }}"
-        group: apache
-        mode: '0755'
-        recurse: yes
-    
-    
-    # 15. Healthcheck - Vérifier qu'Apache répond
-    - name: Healthcheck - Vérifier qu'Apache répond
-      uri:
-        url: "http://{{ ansible_default_ipv4.address }}"
-        method: GET
-        status_code: 200
-      register: healthcheck
-      ignore_errors: yes
-    
-    - name: Afficher le résultat du healthcheck
-      debug:
-        msg: |
-          {% if healthcheck.status == 200 %}
-          SUCCESS: L'application répond correctement !
-          URL: http://{{ ansible_default_ipv4.address }}
-          {% else %}
-          FAILED: L'application ne répond pas
-          {% endif %}
 
-  # Handlers pour redémarrer les services
-  handlers:
-    - name: restart apache
-      systemd:
+    - name: Installer les dépendances PHP via Composer
+      command: composer install --no-interaction
+      args:
+        chdir: /var/www/html/trygl/src
+
+    - name: Mettre à jour le DocumentRoot pour pointer sur src
+      replace:
+        path: /etc/httpd/conf/httpd.conf
+        regexp: '^\s*DocumentRoot\s+'
+        replace: 'DocumentRoot "/var/www/html/trygl/src"'
+
+    - name: Autoriser l’accès au répertoire src
+      blockinfile:
+        path: /etc/httpd/conf/httpd.conf
+        insertafter: '^DocumentRoot'
+        block: |
+          <Directory "/var/www/html/trygl/src">
+            AllowOverride None
+            Require all granted
+          </Directory>
+
+    - name: Redémarrer Apache
+      service:
         name: httpd
         state: restarted
+
+    - name: Healthcheck – s’assurer que l’app répond
+      uri:
+        url: http://localhost/
+        status_code: 200
