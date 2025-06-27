@@ -3,81 +3,97 @@
   hosts: all
   become: yes
 
+  vars:
+    project_git_url: "https://gitlab.com/Vincent-Antoine/trygl.git"
+    project_path: "/var/www"
+    apache_conf_path: "/etc/httpd/conf/httpd.conf"
+    web_root: "/var/www/html/trygl"
+    apache_root: "/var/www/html/trygl"
+
   tasks:
-    - name: Créer l’utilisateur ynov
+    - name: Créer utilisateur ynov
       user:
         name: ynov
+        state: present
         shell: /bin/bash
-        create_home: yes
 
-    - name: Installer Apache, MariaDB, PHP, Git et unzip
-      dnf:
+    - name: Installer la stack complète LAMP
+      ansible.builtin.dnf:
         name:
           - httpd
           - mariadb105-server
           - php
           - php-mysqlnd
           - php-cli
-          - git
+          - php-json
+          - php-common
           - unzip
+          - git
         state: present
         update_cache: yes
 
-    - name: Supprimer l’ancienne application
-      file:
-        path: /var/www/html/trygl
+    - name: Supprimer le contenu de {{ web_root }}
+      ansible.builtin.file:
+        path: "{{ web_root }}"
         state: absent
 
-    - name: Cloner le dépôt GitLab dans /var/www/html/trygl
-      git:
-        repo: https://gitlab.com/Vincent-Antoine/trygl.git
-        dest: /var/www/html/trygl
+    - name: Cloner le dépôt Git dans {{ web_root }}
+      ansible.builtin.git:
+        repo: "{{ project_git_url }}"
+        dest: "{{ web_root }}"
         version: main
         force: yes
 
-    - name: Télécharger l’installateur Composer
-      get_url:
+    - name: Télécharger Composer
+      ansible.builtin.get_url:
         url: https://getcomposer.org/installer
         dest: /tmp/composer-setup.php
 
-    - name: Installer Composer
-      command: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
-      args:
+    - name: Installer Composer globalement
+      ansible.builtin.command:
+        cmd: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
         creates: /usr/local/bin/composer
 
-    - name: Installer les dépendances PHP avec Composer
-      command: /usr/local/bin/composer install --no-interaction
-      args:
-        chdir: /var/www/html/trygl/src
+    - name: Modifier le DocumentRoot dans la conf Apache
+      ansible.builtin.replace:
+        path: "{{ apache_conf_path }}"
+        regexp: '^DocumentRoot\s+".*"'
+        replace: 'DocumentRoot "{{ apache_root }}"'
 
-    - name: Vérifier la syntaxe Apache avant redémarrage
-      command: apachectl configtest
-      register: apache_syntax
-      changed_when: false
-      failed_when: apache_syntax.rc != 0
-
-    - name: Mettre à jour le DocumentRoot pour pointer sur src
-      replace:
-        path: /etc/httpd/conf/httpd.conf
-        regexp: '^\s*DocumentRoot\s+".*"'
-        replace: 'DocumentRoot "/var/www/html/trygl/src"'
-
-    - name: Autoriser l’accès au répertoire de l’application
-      blockinfile:
-        path: /etc/httpd/conf/httpd.conf
-        insertafter: '^DocumentRoot'
+    - name: Ajouter configuration Directory pour Apache
+      ansible.builtin.blockinfile:
+        path: "{{ apache_conf_path }}"
+        insertafter: "^DocumentRoot"
         block: |
-          <Directory "/var/www/html/trygl/src">
-            AllowOverride None
-            Require all granted
+          <Directory "{{ apache_root }}">
+              AllowOverride None
+              Require all granted
           </Directory>
 
+    - name: Donner les droits à Apache sur {{ apache_root }}
+      ansible.builtin.file:
+        path: "{{ apache_root }}"
+        state: directory
+        recurse: yes
+        owner: apache
+        group: apache
+        mode: "0755"
+
     - name: Redémarrer Apache
-      service:
+      ansible.builtin.service:
         name: httpd
         state: restarted
 
-    - name: Vérifier que l’application répond bien
-      uri:
+    - name: Créer un fichier index.html de test
+      ansible.builtin.copy:
+        dest: "{{ web_root }}/index.html"
+        content: "<html><body><h1>Site OK</h1></body></html>"
+        owner: apache
+        group: apache
+        mode: "0644"
+
+    - name: Vérifier le healthcheck
+      ansible.builtin.uri:
         url: http://localhost/
+        return_content: yes
         status_code: 200
