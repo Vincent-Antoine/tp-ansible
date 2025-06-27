@@ -13,9 +13,11 @@
   tasks:
     - name: Créer utilisateur ynov
       user:
-        name: test
+        name: ynov
         state: present
         shell: /bin/bash
+        create_home: yes
+
 
     - name: Installer la stack complète LAMP
       ansible.builtin.dnf:
