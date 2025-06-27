@@ -4,7 +4,7 @@
   become: yes
  
   vars:
-    project_git_url: "https://github.com/Vincent-Antoine/tp-ansible.git"
+    project_git_url: "https://gitlab.com/Vincent-Antoine/trygl.git"
     project_path: "/var/www"
     apache_conf_path: "/etc/httpd/conf/httpd.conf"
     web_root: "/var/www/html/tpansible"
