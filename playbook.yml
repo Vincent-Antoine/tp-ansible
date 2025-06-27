@@ -18,8 +18,7 @@
       dnf:
         name:
           - httpd
-          - mariadb-server
-          - mariadb          # client tools
+          - mariadb        # installe le serveur et le client
           - php
           - php-mysqlnd
           - git
