@@ -5,10 +5,9 @@
 
   vars:
     project_git_url: "https://gitlab.com/Vincent-Antoine/trygl.git"
-    project_path: "/var/www"
-    apache_conf_path: "/etc/httpd/conf/httpd.conf"
     web_root: "/var/www/html/trygl"
-    apache_root: "/var/www/html/trygl"
+    apache_root: "{{ web_root }}/src"          # <- pointe sur src maintenant
+    apache_conf_path: "/etc/httpd/conf/httpd.conf"
 
   tasks:
     - name: Créer utilisateur ynov
@@ -18,9 +17,8 @@
         shell: /bin/bash
         create_home: yes
 
-
     - name: Installer la stack complète LAMP
-      ansible.builtin.dnf:
+      dnf:
         name:
           - httpd
           - mariadb105-server
@@ -35,37 +33,48 @@
         update_cache: yes
 
     - name: Supprimer le contenu de {{ web_root }}
-      ansible.builtin.file:
+      file:
         path: "{{ web_root }}"
         state: absent
 
     - name: Cloner le dépôt Git dans {{ web_root }}
-      ansible.builtin.git:
+      git:
         repo: "{{ project_git_url }}"
         dest: "{{ web_root }}"
         version: main
         force: yes
 
     - name: Télécharger Composer
-      ansible.builtin.get_url:
+      get_url:
         url: https://getcomposer.org/installer
         dest: /tmp/composer-setup.php
 
     - name: Installer Composer globalement
-      ansible.builtin.command:
-        cmd: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+      command: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+      args:
         creates: /usr/local/bin/composer
 
+    - name: Installer les dépendances PHP si composer.json existe
+      stat:
+        path: "{{ apache_root }}/composer.json"
+      register: composer_json
+
+    - name: Run composer install
+      command: /usr/local/bin/composer install --no-interaction
+      args:
+        chdir: "{{ apache_root }}"
+      when: composer_json.stat.exists
+
     - name: Modifier le DocumentRoot dans la conf Apache
-      ansible.builtin.replace:
+      replace:
         path: "{{ apache_conf_path }}"
-        regexp: '^DocumentRoot\s+".*"'
+        regexp: '^\s*DocumentRoot\s+".*"'
         replace: 'DocumentRoot "{{ apache_root }}"'
 
     - name: Ajouter configuration Directory pour Apache
-      ansible.builtin.blockinfile:
+      blockinfile:
         path: "{{ apache_conf_path }}"
-        insertafter: "^DocumentRoot"
+        insertafter: '^DocumentRoot'
         block: |
           <Directory "{{ apache_root }}">
               AllowOverride None
@@ -73,7 +82,7 @@
           </Directory>
 
     - name: Donner les droits à Apache sur {{ apache_root }}
-      ansible.builtin.file:
+      file:
         path: "{{ apache_root }}"
         state: directory
         recurse: yes
@@ -82,20 +91,12 @@
         mode: "0755"
 
     - name: Redémarrer Apache
-      ansible.builtin.service:
+      service:
         name: httpd
         state: restarted
 
-    - name: Créer un fichier index.html de test
-      ansible.builtin.copy:
-        dest: "{{ web_root }}/index.html"
-        content: "<html><body><h1>Site OK</h1></body></html>"
-        owner: apache
-        group: apache
-        mode: "0644"
-
     - name: Vérifier le healthcheck
-      ansible.builtin.uri:
+      uri:
         url: http://localhost/
         return_content: yes
         status_code: 200
