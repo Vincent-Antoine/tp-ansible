@@ -1,7 +1,8 @@
 ---
-- name: Déploiement LAMP stack avec application PHP
-  hosts: webservers
+- name: Déploiement projet LAMP
+  hosts: all
   become: yes
+
   vars:
     app_user: ynov
     app_dir: /var/www
