@@ -54,6 +54,20 @@
         version: HEAD
         force: yes
 
+    - name: Provide default index.html if none exists
+      become_user: ynov
+      copy:
+        dest: "{{ project_dest }}/index.html"
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head><title>It works</title></head>
+          <body><h1>Application deployed successfully</h1></body>
+          </html>
+        owner: ynov
+        group: ynov
+        mode: "0644"
+
     - name: Download Composer installer
       get_url:
         url: https://getcomposer.org/installer
@@ -88,6 +102,7 @@
           <VirtualHost *:80>
             DocumentRoot {{ project_dest }}
             <Directory {{ project_dest }}>
+              Options Indexes FollowSymLinks
               AllowOverride All
               Require all granted
             </Directory>
@@ -96,7 +111,7 @@
 
     - name: HTTP Healthcheck
       uri:
-        url: "http://localhost/"
+        url: "http://localhost/index.html"
         status_code: 200
 
   handlers:
