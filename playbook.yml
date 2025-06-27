@@ -18,7 +18,7 @@
       dnf:
         name:
           - httpd
-          - mariadb105-server
+          - mariadb105-server   # installe MariaDB 10.5 server + client
           - php
           - php-mysqlnd
           - git
@@ -105,6 +105,7 @@
         dest: /etc/httpd/conf.d/app.conf
         content: |
           <VirtualHost *:80>
+            ServerName ec2-13-39-20-169.eu-west-3.compute.amazonaws.com
             DocumentRoot {{ project_dest }}
             <Directory {{ project_dest }}>
               Options Indexes FollowSymLinks
@@ -116,8 +117,12 @@
 
     - name: HTTP Healthcheck
       uri:
-        url: "http://localhost/"
+        url: "http://127.0.0.1/"
+        headers:
+          Host: "{{ inventory_hostname }}"
         status_code: 200
+      delegate_to: "{{ inventory_hostname }}"
+      run_once: true
 
   handlers:
     - name: Restart httpd
