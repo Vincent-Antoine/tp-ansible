@@ -38,19 +38,22 @@
         state: started
         enabled: yes
 
-    - name: Clone project repository
+    - name: Ensure project directory exists
+      file:
+        path: "{{ project_dest }}"
+        state: directory
+        owner: ynov
+        group: ynov
+        mode: "0755"
+
+    - name: Clone project repository as ynov
+      become: yes
+      become_user: ynov
       git:
         repo: "{{ repo_url }}"
         dest: "{{ project_dest }}"
         version: HEAD
         force: yes
-
-    - name: Ensure ynov owns the project directory
-      file:
-        path: "{{ project_dest }}"
-        owner: ynov
-        group: ynov
-        recurse: yes
 
     - name: Download Composer installer
       get_url:
