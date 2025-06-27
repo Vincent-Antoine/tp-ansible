@@ -13,7 +13,7 @@
   tasks:
     - name: Créer utilisateur ynov
       user:
-        name: ynov
+        name: test
         state: present
         shell: /bin/bash
 
